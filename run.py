@@ -1,102 +1,77 @@
-import torch
-import warnings
-import argparse
+import time
 import torch
 from torch import nn
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from model.multi_sample_dropout import NeuralNet as Test_Model
-from dataset.dataset import CompDataset, TestDataset
+from model.Multi_sample_drop import NeuralNet as Test_Model
+from dataset.DatasetForBert import CompDataset, TestDataset
 import pandas as pd
 from transformers import AutoTokenizer, AdamW
-from utils.train_eval_infer import train_and_eval, evaluate
+from utils.TrainingForBert import train_and_eval, predict
 from utils.training_tricks import get_parameters
-from utils.utils import compare_pinyin
-from utils.train_eval_infer import predict
-
-warnings.filterwarnings('ignore')
-
-
-def set_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--train_data_path', default='data/train.csv', type=str, required=False, help='训练数据路径')
-    parser.add_argument('--val_data_path', default='data/all_dev.csv', type=str, required=False, help='验证数据路径')
-    parser.add_argument('--test_data_path', default='data/test.csv', type=str, required=False, help='测试数据路径')
-    parser.add_argument('--MAXLEN', default=64, type=int, required=False, help='输入文本的最大保留长度')
-    parser.add_argument('--log_path', default='log/train.log', type=str, required=False, help='训练日志存放位置')
-    parser.add_argument('--ignore_index', default=-100, type=int, required=False, help='对于ignore_index的label token不计算梯度')
-    parser.add_argument('--EPOCHS', default=10, type=int, required=False, help='训练的最大轮次')
-    parser.add_argument('--BATCH_SIZE', default=256, type=int, required=False, help='训练的batch size')
-    parser.add_argument('--L_RATE', default=2e-5, type=float, required=False, help='学习率')
-    parser.add_argument('--eps', default=1.0e-09, type=float, required=False, help='AdamW优化器的衰减率')
-    parser.add_argument('--log_step', default=1, type=int, required=False, help='多少步汇报一次loss')
-    parser.add_argument('--accumulation', default=1, type=int, required=False, help='梯度积累的步数')
-    parser.add_argument('--max_grad_norm', default=1.0, type=float, required=False, help='梯度裁剪后的最大梯度')
-    parser.add_argument('--model_save_path', default='model/', type=str, required=False, help='模型输出路径')
-    parser.add_argument('--Model_Name', default="peterchou/ernie-gram", type=str, required=False, help='预训练的模型的路径')
-    parser.add_argument('--seed', type=int, default=42, help='设置随机种子')
-    parser.add_argument('--patience', type=int, default=0, help="用于early stopping,设为0时,不进行early stopping.")
-    parser.add_argument('--warmup_radio', type=float, default=0.1, help='warm_up占总更新次数的比例')
-    parser.add_argument('--num_class', type=int, default=2, help='标签的分类数')
-    parser.add_argument('--multiplier', type=float, default=0.95, help='模型内部学习率衰减速度')
-    parser.add_argument('--use_R_drop', type=bool, default=False, help='是否使用R-drop')
-    args = parser.parse_args()
-    return args
+from utils.utils import compare_pinyin, clean_non_char
+from utils.tools import set_args, set_logger
 
 
 if __name__ == '__main__':
     args = set_args()
-    DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    logger = set_logger(args)
 
+    logger.info("*****************  Start training   *****************")
+
+    DEVICE = torch.device(f'cuda:{args.gpu_index}' if torch.cuda.is_available() else 'cpu')
     tokenizer = AutoTokenizer.from_pretrained(args.Model_Name, do_lower_case=True)
-
+    # 训练集
     train_df = pd.read_csv(args.train_data_path)
     train_dataset = CompDataset(train_df, tokenizer, args.MAXLEN)
     train_dataloader = DataLoader(train_dataset, batch_size=args.BATCH_SIZE, shuffle=True)
-
+    # 验证集
     val_df = pd.read_csv(args.val_data_path)
     val_dataset = CompDataset(val_df, tokenizer, args.MAXLEN)
     val_dataloader = DataLoader(val_dataset, batch_size=args.BATCH_SIZE)
-
+    # 初始化模型
     model = Test_Model(args.Model_Name).to(DEVICE)
-
-    params = get_parameters(model=model,
-                            model_init_lr=args.L_RATE,
-                            multiplier=args.multiplier)
-    optimizer = AdamW(params)
-
-    # optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=args.L_RATE)
+    # 优化器
+    if args.use_multiplier:
+        params = get_parameters(model=model,
+                                model_init_lr=args.L_RATE,
+                                multiplier=args.multiplier)
+        optimizer = AdamW(params)
+    else:
+        optimizer = AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=args.L_RATE)
+    # 损失函数
     criterion = nn.CrossEntropyLoss()
-
+    # 训练
     train_and_eval(model=model,
                    train_dataloader=train_dataloader,
                    val_dataloader=val_dataloader,
                    DEVICE=DEVICE,
                    criterion=criterion,
                    optimizer=optimizer,
-                   args=args)
-
-    # acc, F1, loss = evaluate(model, val_dataloader, DEVICE, criterion)
-    # print('acc: ', acc)
-    # print('F1: ', F1)
-    # print('loss； ', loss)
-
+                   args=args,
+                   logger=logger)
+    # 加载测试数据
     test_df = pd.read_csv(args.test_data_path)
     test_dataset = TestDataset(test_df, tokenizer, args.MAXLEN)
     test_dataloader = DataLoader(test_dataset, batch_size=args.BATCH_SIZE)
-
-    model = Test_Model(model_name=args.Model_Name).to(DEVICE)
+    # 加载最佳模型
     model.load_state_dict(torch.load(args.model_save_path + 'model.pth'))
-
-    preds = predict(model=model,
-                    test_dataloader=test_dataloader,
-                    DEVICE=DEVICE)
-
+    # 预测
+    pred_labels, pred_logits = predict(model=model,
+                                       test_dataloader=test_dataloader,
+                                       DEVICE=DEVICE)
+    # 保存logits
+    logits_df = pd.DataFrame(pred_logits, columns=['label_0', 'label_1'])
+    local_time = time.strftime("%Y-%m-%d-%X", time.localtime())
+    logits_df.to_csv(args.data_save_path + local_time + '_logits.csv', index=False)
+    # 检查拼音是否相同
     for i, row in test_df.iterrows():
-        if compare_pinyin(row['text1'], row['text2']):
-            preds[i] = 1
-
-    pd.DataFrame(preds).to_csv('data/ccf_qianyan_qm_result_A.csv', index=False, header=None)
+        # 清除标点后句子拼音相同则设置标签为1
+        if compare_pinyin(clean_non_char(row['text1']), clean_non_char(row['text2'])):
+            pred_labels[i] = 1
+    # 保存标签文件
+    pd.DataFrame(pred_labels).to_csv(args.data_save_path + local_time + '_labels.csv',
+                                     index=False,
+                                     header=None)
 
 
 

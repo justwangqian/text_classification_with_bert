@@ -5,23 +5,21 @@ from transformers import BertConfig, BertModel
 
 
 class NeuralNet(nn.Module):
-    def __init__(self, model_name, num_class=2):
+    def __init__(self, model_name, hidden_size=768, num_class=2):
         super(NeuralNet, self).__init__()
 
         self.config = BertConfig.from_pretrained(model_name, num_labels=num_class)
         self.config.output_hidden_states = True
         self.bert = BertModel.from_pretrained(model_name, config=self.config)
-        for param in self.bert.parameters():
-            param.requires_grad = True
         self.weights = nn.Parameter(torch.rand(13, 1))
-        # self.dropout = nn.Dropout(0.2)
-        self.fc = nn.Linear(self.config.hidden_size * 2, num_class)
-        self.dropouts = nn.ModuleList([
-            nn.Dropout(0.2) for _ in range(5)
-        ])
+        self.fc = nn.Linear(hidden_size * 2, num_class)
+        self.dropouts = nn.ModuleList([nn.Dropout(0.2) for _ in range(5)])
 
-    def forward(self, input_ids, input_mask, segment_ids, y=None, loss_fn=None):
-        output = self.bert(input_ids, token_type_ids=segment_ids, attention_mask=input_mask)
+    def forward(self, input_ids, input_mask, segment_ids=None, y=None, loss_fn=None):
+        if segment_ids is not None:
+            output = self.bert(input_ids, attention_mask=input_mask, token_type_ids=segment_ids)
+        else:
+            output = self.bert(input_ids, attention_mask=input_mask)
         last_hidden = output.last_hidden_state
         all_hidden_states = output.hidden_states
         batch_size = input_ids.shape[0]
@@ -33,8 +31,6 @@ class NeuralNet(nn.Module):
         feature = torch.sum(ht_cls * atten.view(13, 1, 1, 1), dim=[0, 2])
         f = torch.mean(last_hidden, 1)
         feature = torch.cat((feature, f), 1)
-        h = torch.zeros()
-
         for i, dropout in enumerate(self.dropouts):
             if i == 0:
                 h = self.fc(dropout(feature))
