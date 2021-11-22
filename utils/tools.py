@@ -5,10 +5,11 @@ import logging
 def set_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--train_data_path', default='data/all.csv', type=str, required=False, help='训练数据路径')
+    parser.add_argument('--dev_data_path', default='data/dev.csv', type=str, required=False, help='验证数据路径')
     parser.add_argument('--test_data_path', default='data/test.csv', type=str, required=False, help='测试数据路径')
     parser.add_argument('--gpu_index', default=0, type=int, required=False, help='测试数据路径')
     parser.add_argument('--MAXLEN', default=64, type=int, required=False, help='输入文本的最大保留长度')
-    parser.add_argument('--log_path', default='log/train.log', type=str, required=False, help='训练日志存放位置')
+    parser.add_argument('--log_path', default='log/', type=str, required=False, help='训练日志存放位置')
     parser.add_argument('--ignore_index', default=-100, type=int, required=False,
                         help='对于ignore_index的label token不计算梯度')
     parser.add_argument('--EPOCHS', default=7, type=int, required=False, help='训练的最大轮次')
@@ -29,6 +30,7 @@ def set_args():
     parser.add_argument('--multiplier', type=float, default=0.95, help='模型内部学习率衰减速度')
     parser.add_argument('--use_R_drop', type=bool, default=False, help='是否使用R-drop')
     parser.add_argument('--K_fold', type=int, default=5, help='将数据分成K折')
+    parser.add_argument('--running_mode', type=str, default='train', help='模型处于train、evaluate、predict中的哪一个状态')
     args = parser.parse_args()
     return args
 
@@ -58,7 +60,8 @@ def set_file_handler(file_path, mode='a'):
 def set_logger(args):
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
-    logger.addHandler(set_file_handler(args.log_path))
+    log_file_name = args.log_path + args.running_mode + '.log'
+    logger.addHandler(set_file_handler(log_file_name))
     logger.addHandler(set_stream_handler())
     logger.debug('------------Start running------------')
     logger.debug('Model_Name : {}'.format(args.Model_Name))

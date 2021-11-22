@@ -1,4 +1,6 @@
 import time
+
+import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
@@ -9,9 +11,8 @@ from model.Multi_sample_drop import NeuralNet as Test_Model
 from dataset.DatasetForBert import CompDataset, TestDataset
 from utils.TrainingForBert import train_and_eval, evaluate, predict
 from utils.training_tricks import get_parameters
-from utils.utils import compare_pinyin, clean_non_char
+from utils.utils import get_time, post_process
 from utils.tools import set_args, set_logger
-
 
 if __name__ == '__main__':
     args = set_args()
@@ -64,18 +65,12 @@ if __name__ == '__main__':
                        fold=fold)
 
         model.load_state_dict(torch.load(args.model_save_path + f'fold_{fold}_model.pth'))
-        pred_labels, pred_logits = predict(model=model,
-                                           test_dataloader=test_dataloader,
-                                           DEVICE=DEVICE)
+        pred_logits = predict(model=model, test_dataloader=test_dataloader, DEVICE=DEVICE)
         # 保存logits
         logits_df = pd.DataFrame(pred_logits, columns=['label_0', 'label_1'])
         local_time = time.strftime("%Y-%m-%d-%X", time.localtime())
-        logits_df.to_csv(args.data_save_path + f'fold_{fold}_' + local_time + '_logits.csv', index=False)
-        # 检查拼音是否相同
-        for i, row in test_df.iterrows():
-            # 清除标点后句子拼音相同则设置标签为1
-            if compare_pinyin(clean_non_char(row['text1']), clean_non_char(row['text2'])):
-                pred_labels[i] = 1
+        logits_df.to_csv(args.data_save_path + f'fold_{fold}_' + get_time() + '_logits.csv', index=False)
+        pred_labels = post_process(test_df, np.argmax(pred_logits, axis=1))
         # 保存标签文件
         pd.DataFrame(pred_labels).to_csv(args.data_save_path + f'fold_{fold}_' + local_time + '_labels.csv',
                                          index=False,

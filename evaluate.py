@@ -12,6 +12,7 @@ from utils.tools import set_args, set_logger
 if __name__ == '__main__':
 
     args = set_args()
+    args.running_mode = 'val'
     logger = set_logger(args)
 
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -28,7 +29,7 @@ if __name__ == '__main__':
     criterion = nn.CrossEntropyLoss()
 
     acc, F1, loss = evaluate(model, val_dataloader, DEVICE, criterion)
-    print('acc: ', acc)
-    print('F1: ', F1)
-    print('loss； ', loss)
+    logger.info(f'acc: {acc}')
+    logger.info(f'F1: {F1}')
+    logger.info(f'loss: {loss}')
 

@@ -1,3 +1,5 @@
+import time
+
 from pypinyin import lazy_pinyin
 import re
 import torch.nn.functional as F
@@ -33,4 +35,15 @@ def clean_non_char(text):
     return re.sub('[^0-9a-zA-Z\u4e00-\u9fa5]+', '', text)
 
 
+# 检查拼音是否相同
+def post_process(test_df, labels):
+    for i, row in test_df.iterrows():
+        # 清除标点后句子拼音相同则设置标签为1
+        if compare_pinyin(clean_non_char(row['text1']), clean_non_char(row['text2'])):
+            labels[i] = 1
+    return labels
 
+
+# 获取当前时间
+def get_time():
+    return time.strftime("%Y-%m-%d-%X", time.localtime())

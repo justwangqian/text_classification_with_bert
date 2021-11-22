@@ -3,6 +3,7 @@ from tqdm import tqdm
 from sklearn.metrics import accuracy_score, f1_score
 from utils.utils import compute_kl_loss
 import pandas as pd
+import numpy as np
 
 
 def evaluate(model, val_dataloader, DEVICE, criterion):
@@ -98,8 +99,7 @@ def train_one_epoch(model, train_dataloader, DEVICE, criterion, optimizer, args,
 def predict(model, test_dataloader, DEVICE):
 
     model.eval()
-    pred_labels = []
-    pred_logits = []
+    all_logits = None
 
     with torch.no_grad():
         for idx, batch in enumerate(tqdm(test_dataloader)):
@@ -109,12 +109,12 @@ def predict(model, test_dataloader, DEVICE):
             seg = batch[2].to(DEVICE)
 
             logits = model(ids, att, seg)
-            # 预测值
-            y_probs = logits.detach().cpu().numpy().tolist()
-            pred_logits.extend(y_probs)
-            # 预测值得到的标签
-            y_preds = logits.argmax(dim=-1).detach().cpu().numpy().tolist()
-            pred_labels.extend(y_preds)
+            # 预测概率值
+            y_probs = logits.detach().cpu().numpy()
+            if idx == 0:
+                all_logits = y_probs
+            else:
+                all_logits = np.concatenate((all_logits, y_probs))
 
-        return pred_labels, pred_logits
+        return all_logits
 
